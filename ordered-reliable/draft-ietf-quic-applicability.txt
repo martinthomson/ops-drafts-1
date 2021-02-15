@@ -5,8 +5,8 @@
 Network Working Group                                      M. Kuehlewind
 Internet-Draft                                                  Ericsson
 Intended status: Informational                               B. Trammell
-Expires: 23 June 2021                                             Google
-                                                        20 December 2020
+Expires: 19 August 2021                                           Google
+                                                        15 February 2021
 
 
               Applicability of the QUIC Transport Protocol
@@ -35,11 +35,11 @@ Status of This Memo
    time.  It is inappropriate to use Internet-Drafts as reference
    material or to cite them other than as "work in progress."
 
-   This Internet-Draft will expire on 23 June 2021.
+   This Internet-Draft will expire on 19 August 2021.
 
 Copyright Notice
 
-   Copyright (c) 2020 IETF Trust and the persons identified as the
+   Copyright (c) 2021 IETF Trust and the persons identified as the
    document authors.  All rights reserved.
 
    This document is subject to BCP 78 and the IETF Trust's Legal
@@ -62,24 +62,26 @@ Table of Contents
    4.  Use of Streams
      4.1.  Stream versus Flow Multiplexing
      4.2.  Prioritization
-     4.3.  Flow Control Deadlocks
+     4.3.  Ordered and Reliable Delivery
+     4.4.  Flow Control Deadlocks
    5.  Packetization and Latency
    6.  Port Selection and Application Endpoint Discovery
    7.  Connection Migration
-   8.  Connection closure
-   9.  Information exposure and the Connection ID
+   8.  Connection Closure
+   9.  Information Exposure and the Connection ID
      9.1.  Server-Generated Connection ID
      9.2.  Mitigating Timing Linkability with Connection ID Migration
      9.3.  Using Server Retry for Redirection
-   10. Use of Versions and Cryptographic Handshake
-   11. Enabling New Versions
-   12. IANA Considerations
-   13. Security Considerations
-   14. Contributors
-   15. Acknowledgments
-   16. References
-     16.1.  Normative References
-     16.2.  Informative References
+   10. Quality of Service (QoS) and DSCP
+   11. Use of Versions and Cryptographic Handshake
+   12. Enabling New Versions
+   13. IANA Considerations
+   14. Security Considerations
+   15. Contributors
+   16. Acknowledgments
+   17. References
+     17.1.  Normative References
+     17.2.  Informative References
    Authors' Addresses
 
 1.  Introduction
@@ -144,10 +146,10 @@ Table of Contents
    payload data.
 
    Moreover, while encryption (in this case TLS) is inseparably
-   integrated with QUIC, TLS negotiation over TCP can be blocked.  In
-   case it is RECOMMENDED to abort the connection, allowing the
-   application to present a suitable prompt to the user that secure
-   communication is unavailable.
+   integrated with QUIC, TLS negotiation over TCP can be blocked.  If
+   TLS over TCP cannot be supported, the connection should be aborted
+   instead, in order to enable the application to present a suitable
+   prompt to the user that secure communication is unavailable.
 
 3.  Zero RTT
 
@@ -217,7 +219,7 @@ Table of Contents
    a minimum value of 15 seconds, but recommends larger values, or
    omitting keepalive entirely.
 
-   By using a Connection ID, QUIC is designed to be robust to NAT
+   By using a connection ID, QUIC is designed to be robust to NAT
    address rebinding after a timeout.  However, this only helps if one
    endpoint maintains availability at the address its peer uses, and the
    peer is the one to send after the timeout occurs.
@@ -298,26 +300,28 @@ Table of Contents
 
    Streams can be unidirectional or bidirectional, and a stream may be
    initiated either by client or server.  Only the initiator of a
-   unidirectional stream can send data on it.  Due to offset encoding
-   limitations, a stream can carry a maximum of 2^62-1 bytes in each
-   direction.  In the presently unlikely event that this limit is
-   reached by an application, the stream can simply be closed and
-   replaced with a new one.
+   unidirectional stream can send data on it.
+
+   Due to encoding limitations on stream offsets and connection flow
+   control limits, both streams and connections can carry a maximum of
+   2^62-1 bytes in each direction.  In the presently unlikely event that
+   this limit is reached by an application, a new connection would need
+   to be established.
 
    Streams can be independently opened and closed, gracefully or by
    error.  An application can gracefully close the egress direction of a
    stream by instructing QUIC to send a FIN bit in a STREAM frame.  It
    cannot gracefully close the ingress direction without a peer-
    generated FIN, much like in TCP.  However, an endpoint can abruptly
-   close either the ingress or egress direction; these actions are fully
-   independent of each other.
+   close the egress direction or request that its peer abruptly close
+   the ingress direction; these actions are fully independent of each
+   other.
 
-   If a stream that is critical for an application is closed, the
-   application can generate respective error messages on the application
-   layer to inform the other end and/or the higher layer, and eventually
-   indicate QUIC to reset the connection.  QUIC, however, does not need
-   to know which streams are critical, and does not provide an interface
-   for exceptional handling of any stream.
+   QUIC does not provide an interface for exceptional handling of any
+   stream.  If a stream that is critical for an application is closed,
+   the application can generate error messages on the application layer
+   to inform the other end and/or the higher layer, which can eventually
+   reset the QUIC connection.
 
    Mapping of application data to streams is application-specific and
    described for HTTP/3 in [QUIC-HTTP].  In general, data that can be
@@ -383,7 +387,27 @@ Table of Contents
    an explicit interface to control prioritization, or derive the
    prioritization decision from the reliability level of the stream.
 
-4.3.  Flow Control Deadlocks
+4.3.  Ordered and Reliable Delivery
+
+   QUIC streams enable ordered and reliable delivery.  Though it is
+   possible for an implementation to provide some options that use
+   streams for partial reliability or out-of-order delivery, most
+   implementations will assume that data is reliability delivered in
+   order.
+
+   Under this assumption, an endpoint that receives stream data might
+   not make forward progress until data that is contiguous with the
+   start of a stream is available.  In particular, the receiver might
+   withhold flow control credit until contiguous data is delivered to
+   the application.  To support this receive logic, an endpoint that
+   sends stream data will attempt to send data from the start of the
+   stream until that data is acknowledged.
+
+   An endpoint that uses a different sending behaviour and does not
+   negotiate that change with its peer might encounter performance
+   issues, especially those that related to flow control.
+
+4.4.  Flow Control Deadlocks
 
    Flow control provides a means of managing access to the limited
    buffers endpoints have for incoming data.  This mechanism limits the
@@ -486,11 +510,11 @@ Table of Contents
    As QUIC is a general purpose transport protocol, there are no
    requirements that servers use a particular UDP port for QUIC.  For
    applications with a fallback to TCP that do not already have an
-   alternate mapping to UDP, the registration (if necessary) and use of
-   the UDP port number corresponding to the TCP port already registered
-   for the application is RECOMMENDED.  For example, the default port
-   for HTTP/3 [QUIC-HTTP] is UDP port 443, analogous to HTTP/1.1 or
-   HTTP/2 over TLS over TCP.
+   alternate mapping to UDP, usually the registration (if necessary) and
+   use of the UDP port number corresponding to the TCP port already
+   registered for the application is appropriate.  For example, the
+   default port for HTTP/3 [QUIC-HTTP] is UDP port 443, analogous to
+   HTTP/1.1 or HTTP/2 over TLS over TCP.
 
    Applications could define an alternate endpoint discovery mechanism
    to allow the usage of ports other than the default.  For example,
@@ -505,15 +529,15 @@ Table of Contents
    Given the prevalence of the assumption in network management practice
    that a port number maps unambiguously to an application, the use of
    ports that cannot easily be mapped to a registered service name might
-   lead to blocking or other interference by network elements such as
-   firewalls that rely on the port number for application
-   identification.
+   lead to blocking or other changes to the forwarding behavior by
+   network elements such as firewalls that use the port number for
+   application identification.
 
 7.  Connection Migration
 
    QUIC supports connection migration by the client.  If a lower-layer
    address changes, a QUIC endpoint can still associate packets with an
-   existing connection using the Destination Connection ID field (see
+   existing connection using the Destination connection ID field (see
    also Section 9) in the QUIC header, unless a zero-length value is
    used.  This supports cases where address information changes, such as
    NAT rebinding, intentional change of the local interface, or based on
@@ -548,7 +572,7 @@ Table of Contents
    the TLS handshake and the client can select between the two if both
    are provided.  See also Section 9.6 of [QUIC].
 
-8.  Connection closure
+8.  Connection Closure
 
    QUIC connections are closed either by expiration of an idle timeout,
    as determined by transport parameters, or by an explicit indication
@@ -590,7 +614,7 @@ Table of Contents
    unnecessary load, as specified in Section 10.1.2 of [QUIC].  See
    Section 3.3 for further guidance on keep-alives.
 
-9.  Information exposure and the Connection ID
+9.  Information Exposure and the Connection ID
 
    QUIC exposes some information to the network in the unencrypted part
    of the header, either before the encryption context is established,
@@ -602,12 +626,12 @@ Table of Contents
    connection IDs), the short header exposes at most only a single
    connection ID.
 
-   Aside from the Destination Connection ID field of the first packets
+   Aside from the destination connection ID field of the first packets
    sent by clients, the connection ID can be zero length.  This is a
    choice that is made by each endpoint individually.
 
    An endpoint that selects a zero-length connection ID will receive
-   packets with a zero-length Destination Connection ID.  The endpoint
+   packets with a zero-length destination connection ID.  The endpoint
    needs to use other information, such as its IP address and port
    number to identify which connection is referred to.  An endpoint can
    choose to use the source IP address and port on datagrams, but this
@@ -635,6 +659,11 @@ Table of Contents
 
 9.2.  Mitigating Timing Linkability with Connection ID Migration
 
+   QUIC requires that endpoints generate fresh connection IDs for use on
+   new network paths.  Choosing values that are unlinkable to an outside
+   observer ensures that activity on different paths cannot be trivially
+   correlated using the connection ID.
+
    While sufficiently robust connection ID generation schemes will
    mitigate linkability issues, they do not provide full protection.
    Analysis of the lifetimes of six-tuples (source and destination
@@ -656,15 +685,15 @@ Table of Contents
 
    QUIC provides a Server Retry packet that can be sent by a server in
    response to the Client Initial packet.  The server may choose a new
-   Connection ID in that packet and the client will retry by sending
-   another Client Initial packet with the server-selected Connection ID.
+   connection ID in that packet and the client will retry by sending
+   another Client Initial packet with the server-selected connection ID.
    This mechanism can be used to redirect a connection to a different
    server, e.g. due to performance reasons or when servers in a server
    pool are upgraded gradually, and therefore may support different
    versions of QUIC.  In this case, it is assumed that all servers
    belonging to a certain pool are served in cooperation with load
-   balancers that forward the traffic based on the Connection ID.  A
-   server can choose the Connection ID in the Server Retry packet such
+   balancers that forward the traffic based on the connection ID.  A
+   server can choose the connection ID in the Server Retry packet such
    that the load balancer will redirect the next Client Initial packet
    to a different server in that pool.  Alternatively the load balancer
    can directly offer a Retry services as further described in
@@ -675,7 +704,22 @@ Table of Contents
    tokens, however, the use of more modern cryptographic algorithms is
    highly recommended.
 
-10.  Use of Versions and Cryptographic Handshake
+10.  Quality of Service (QoS) and DSCP
+
+   QUIC assumes that all packets of a QUIC connection or at least with
+   the same 5-tuple {dest addr, source addr, protocol, dest port, source
+   port} will receive similar network treatment as feedback about loss
+   or delay of each packet is used as input to the congestion
+   controller.  Therefore it is not recommended to use different
+   DiffServ Code Points (DSCPs) [RFC2475] for packets belonging to the
+   same connection.  If differential network treatment, e.g. by the use
+   of different DSCPs, is desired, multiple QUIC connections to the same
+   server may be used.  However, in general it is recommended to
+   minimize the number of QUIC connections to the same server, to avoid
+   increased overheads and, more importantly, competing congestion
+   control.
+
+11.  Use of Versions and Cryptographic Handshake
 
    Versioning in QUIC may change the protocol's behavior completely,
    except for the meaning of a few header fields that have been declared
@@ -691,7 +735,7 @@ Table of Contents
    separate specification [QUIC-TLS].  This split is performed to enable
    light-weight versioning with different cryptographic handshakes.
 
-11.  Enabling New Versions
+12.  Enabling New Versions
 
    QUIC provides integrity protection for its version negotiation
    process.  This process assumes that the set of versions that a server
@@ -744,17 +788,19 @@ Table of Contents
    version in Version Negotiation packets, then the old version is no
    longer accepted.
 
-12.  IANA Considerations
+13.  IANA Considerations
 
    This document has no actions for IANA; however, note that Section 6
    recommends that application bindings to QUIC for applications using
    TCP register UDP ports analogous to their existing TCP registrations.
 
-13.  Security Considerations
+14.  Security Considerations
 
    See the security considerations in [QUIC] and [QUIC-TLS]; the
    security considerations for the underlying transport protocol are
-   relevant for applications using QUIC, as well.
+   relevant for applications using QUIC, as well.  Considerations on
+   linkability, replay attacks, and randomness discussed in [QUIC-TLS]
+   should be taken into account when deploying and using QUIC.
 
    Application developers should note that any fallback they use when
    QUIC cannot be used due to network blocking of UDP should guarantee
@@ -762,12 +808,17 @@ Table of Contents
    connection should fail to allow the application to explicitly handle
    fallback to a less-secure alternative.  See Section 2.
 
-14.  Contributors
+   Further [QUIC-HTTP] provides security considerations specific to
+   HTTP.  However, discussions such as on cross protocol attacks,
+   traffic analysis and padding, or migration might be relevant for
+   other applications using QUIC as well.
+
+15.  Contributors
 
    Igor Lubashev contributed text to Section 9 on server-selected
-   Connection IDs.
+   connection IDs.
 
-15.  Acknowledgments
+16.  Acknowledgments
 
    This work is partially supported by the European Commission under
    Horizon 2020 grant agreement no. 688421 Measurement and Architecture
@@ -775,26 +826,27 @@ Table of Contents
    for Education, Research, and Innovation under contract no. 15.0268.
    This support does not imply endorsement.
 
-16.  References
+17.  References
 
-16.1.  Normative References
+17.1.  Normative References
 
    [QUIC]     Iyengar, J. and M. Thomson, "QUIC: A UDP-Based Multiplexed
               and Secure Transport", Work in Progress, Internet-Draft,
-              draft-ietf-quic-transport-33, 13 December 2020,
-              <http://www.ietf.org/internet-drafts/draft-ietf-quic-
-              transport-33.txt>.
+              draft-ietf-quic-transport-34, 14 January 2021,
+              <https://www.ietf.org/archive/id/draft-ietf-quic-
+              transport-34.txt>.
 
    [QUIC-INVARIANTS]
               Thomson, M., "Version-Independent Properties of QUIC",
               Work in Progress, Internet-Draft, draft-ietf-quic-
-              invariants-12, 13 December 2020, <http://www.ietf.org/
-              internet-drafts/draft-ietf-quic-invariants-12.txt>.
+              invariants-13, 14 January 2021,
+              <https://www.ietf.org/archive/id/draft-ietf-quic-
+              invariants-13.txt>.
 
    [QUIC-TLS] Thomson, M. and S. Turner, "Using TLS to Secure QUIC",
-              Work in Progress, Internet-Draft, draft-ietf-quic-tls-33,
-              13 December 2020, <http://www.ietf.org/internet-drafts/
-              draft-ietf-quic-tls-33.txt>.
+              Work in Progress, Internet-Draft, draft-ietf-quic-tls-34,
+              14 January 2021, <https://www.ietf.org/archive/id/draft-
+              ietf-quic-tls-34.txt>.
 
    [RFC6335]  Cotton, M., Eggert, L., Touch, J., Westerlund, M., and S.
               Cheshire, "Internet Assigned Numbers Authority (IANA)
@@ -807,7 +859,7 @@ Table of Contents
               Version 1.3", RFC 8446, DOI 10.17487/RFC8446, August 2018,
               <https://www.rfc-editor.org/info/rfc8446>.
 
-16.2.  Informative References
+17.2.  Informative References
 
    [ALPN]     Friedl, S., Popov, A., Langley, A., and E. Stephan,
               "Transport Layer Security (TLS) Application-Layer Protocol
@@ -834,7 +886,7 @@ Table of Contents
    [I-D.nottingham-httpbis-retry]
               Nottingham, M., "Retrying HTTP Requests", Work in
               Progress, Internet-Draft, draft-nottingham-httpbis-retry-
-              01, 1 February 2017, <http://www.ietf.org/internet-drafts/
+              01, 1 February 2017, <https://www.ietf.org/archive/id/
               draft-nottingham-httpbis-retry-01.txt>.
 
    [PaaschNanog]
@@ -846,14 +898,20 @@ Table of Contents
    [QUIC-HTTP]
               Bishop, M., "Hypertext Transfer Protocol Version 3
               (HTTP/3)", Work in Progress, Internet-Draft, draft-ietf-
-              quic-http-33, 15 December 2020, <http://www.ietf.org/
-              internet-drafts/draft-ietf-quic-http-33.txt>.
+              quic-http-34, 2 February 2021,
+              <https://www.ietf.org/archive/id/draft-ietf-quic-http-
+              34.txt>.
 
    [QUIC-LB]  Duke, M. and N. Banks, "QUIC-LB: Generating Routable QUIC
               Connection IDs", Work in Progress, Internet-Draft, draft-
-              ietf-quic-load-balancers-05, 30 October 2020,
-              <http://www.ietf.org/internet-drafts/draft-ietf-quic-load-
-              balancers-05.txt>.
+              ietf-quic-load-balancers-06, 4 February 2021,
+              <https://www.ietf.org/archive/id/draft-ietf-quic-load-
+              balancers-06.txt>.
+
+   [RFC2475]  Blake, S., Black, D., Carlson, M., Davies, E., Wang, Z.,
+              and W. Weiss, "An Architecture for Differentiated
+              Services", RFC 2475, DOI 10.17487/RFC2475, December 1998,
+              <https://www.rfc-editor.org/info/rfc2475>.
 
    [RFC5077]  Salowey, J., Zhou, H., Eronen, P., and H. Tschofenig,
               "Transport Layer Security (TLS) Session Resumption without
