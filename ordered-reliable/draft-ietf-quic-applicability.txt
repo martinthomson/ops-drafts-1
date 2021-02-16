@@ -5,8 +5,8 @@
 Network Working Group                                      M. Kuehlewind
 Internet-Draft                                                  Ericsson
 Intended status: Informational                               B. Trammell
-Expires: 19 August 2021                                           Google
-                                                        15 February 2021
+Expires: 20 August 2021                                           Google
+                                                        16 February 2021
 
 
               Applicability of the QUIC Transport Protocol
@@ -35,7 +35,7 @@ Status of This Memo
    time.  It is inappropriate to use Internet-Drafts as reference
    material or to cite them other than as "work in progress."
 
-   This Internet-Draft will expire on 19 August 2021.
+   This Internet-Draft will expire on 20 August 2021.
 
 Copyright Notice
 
@@ -390,8 +390,8 @@ Table of Contents
 4.3.  Ordered and Reliable Delivery
 
    QUIC streams enable ordered and reliable delivery.  Though it is
-   possible for an implementation to provide some options that use
-   streams for partial reliability or out-of-order delivery, most
+   possible for an implementation to provide options that use streams
+   for partial reliability or out-of-order delivery, most
    implementations will assume that data is reliably delivered in order.
 
    Under this assumption, an endpoint that receives stream data might
